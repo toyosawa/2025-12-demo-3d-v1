@@ -4,13 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import * as THREE from "three"
 import { VRMUtils, VRM } from "@pixiv/three-vrm"
 import { PoseLandmarker, FaceLandmarker } from "@mediapipe/tasks-vision"
-import {
-  setupThree,
-  setupVRMFromURL,
-  setupMediaPipe,
-  applyPoseToVRM,
-  applyFaceToVRM,
-} from "./lib"
+import { setupThree, setupVRMFromURL, setupMediaPipe, applyPoseToVRM, applyFaceToVRM } from "./lib"
 
 const VRM_MODEL_URL = "/vrm/shtra.vrm"
 
@@ -28,6 +22,12 @@ export default function Home() {
   const faceLandmarkerRef = useRef<FaceLandmarker | null>(null)
   const isProcessingRef = useRef(false)
   const animationIdRef = useRef<number | null>(null)
+
+  const applyPoseToVRMFunctionRef = useRef(applyPoseToVRM)
+  applyPoseToVRMFunctionRef.current = applyPoseToVRM
+  
+  const applyFaceToVRMFunctionRef = useRef(applyFaceToVRM)
+  applyFaceToVRMFunctionRef.current = applyFaceToVRM
 
   // Three.jsのセットアップ
   const initThreeJS = () => {
@@ -103,7 +103,6 @@ export default function Home() {
   const startCamera = async () => {
     const video = videoRef.current
     if (!video) return
-
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: 640, height: 480 },
@@ -127,33 +126,25 @@ export default function Home() {
       requestAnimationFrame(processFrame)
       return
     }
-
     if (isProcessingRef.current) {
       requestAnimationFrame(processFrame)
       return
     }
-
     isProcessingRef.current = true
     const startTimeMs = performance.now()
 
     try {
-      if (poseLandmarkerRef.current) {
+      if (poseLandmarkerRef.current && vrmRef.current) {
         const poseResults = poseLandmarkerRef.current.detectForVideo(video, startTimeMs)
-        if (vrmRef.current) {
-          applyPoseToVRM(poseResults, vrmRef.current)
-        }
+        applyPoseToVRMFunctionRef.current?.(poseResults, vrmRef.current)
       }
-
-      if (faceLandmarkerRef.current) {
+      if (faceLandmarkerRef.current && vrmRef.current) {
         const faceResults = faceLandmarkerRef.current.detectForVideo(video, startTimeMs)
-        if (vrmRef.current) {
-          applyFaceToVRM(faceResults, vrmRef.current)
-        }
+        applyFaceToVRMFunctionRef.current?.(faceResults, vrmRef.current)
       }
     } catch (error) {
       console.error("Detection error:", error)
     }
-
     isProcessingRef.current = false
     requestAnimationFrame(processFrame)
   }

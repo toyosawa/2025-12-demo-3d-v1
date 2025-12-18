@@ -128,110 +128,109 @@ export const applyPoseToVRM = (results: PoseResults, vrm: VRM) => {
   const landmarks = results.landmarks[0]
   const humanoid = vrm.humanoid
 
-  // 左腕
-  const leftShoulder = landmarks[PoseLandmark.LEFT_SHOULDER]
-  const leftElbow = landmarks[PoseLandmark.LEFT_ELBOW]
-  const leftWrist = landmarks[PoseLandmark.LEFT_WRIST]
-  const leftUpperArmNode = humanoid.getNormalizedBoneNode("leftUpperArm")
-  if (leftUpperArmNode) {
-    // 上腕の回転
-    const armAngles = calculateArmAngles(leftShoulder, leftElbow, leftWrist)
-    leftUpperArmNode.rotation.z = armAngles.z
-    leftUpperArmNode.rotation.x = -armAngles.x
-  }
-  const leftLowerArmNode = humanoid.getNormalizedBoneNode("leftLowerArm")
-  if (leftLowerArmNode) {
-    // 前腕の回転
-    const elbowAngle = calculateElbowAngle(leftShoulder, leftElbow, leftWrist)
-    leftLowerArmNode.rotation.z = elbowAngle
-  }
-
-  // 右腕
-  const rightShoulder = landmarks[PoseLandmark.RIGHT_SHOULDER]
-  const rightElbow = landmarks[PoseLandmark.RIGHT_ELBOW]
-  const rightWrist = landmarks[PoseLandmark.RIGHT_WRIST]
-  const rightUpperArmNode = humanoid.getNormalizedBoneNode("rightUpperArm")
-  if (rightUpperArmNode) {
-    // 上腕の回転
-    const armAngles = calculateArmAngles(rightShoulder, rightElbow, rightWrist)
-    rightUpperArmNode.rotation.z = -armAngles.z
-    rightUpperArmNode.rotation.x = armAngles.x
-  }
-  const rightLowerArmNode = humanoid.getNormalizedBoneNode("rightLowerArm")
-  if (rightLowerArmNode) {
-    // 前腕の回転
-    const elbowAngle = calculateElbowAngle(rightShoulder, rightElbow, rightWrist)
-    rightLowerArmNode.rotation.z = -elbowAngle
-  }
-
   // 頭部
   const nose = landmarks[PoseLandmark.NOSE]
   const leftEar = landmarks[PoseLandmark.LEFT_EAR]
   const rightEar = landmarks[PoseLandmark.RIGHT_EAR]
   const headNode = humanoid.getNormalizedBoneNode("head")
   if (headNode) {
-    // 頭の回転
-    const headRotation = calculateHeadRotation(nose, leftEar, rightEar)
-    headNode.rotation.y = headRotation.y
-    headNode.rotation.x = headRotation.x
+    const earCenter = {
+      x: (leftEar.x + rightEar.x) / 2,
+      y: (leftEar.y + rightEar.y) / 2,
+    }
+    const yaw = (nose.x - earCenter.x) * Math.PI * 2
+    const pitch = -(nose.y - earCenter.y) * Math.PI * 2
+    headNode.rotation.y = yaw
+    headNode.rotation.x = pitch
+  }
+
+  // 左腕（カメラから見て左 = VRMの右）
+  const leftShoulder = landmarks[PoseLandmark.LEFT_SHOULDER]
+  const leftElbow = landmarks[PoseLandmark.LEFT_ELBOW]
+  // 左上腕のZ軸回転（肩の上下動き）
+  const leftUpperArmNode = humanoid.getNormalizedBoneNode("leftUpperArm")
+  if (leftUpperArmNode) {
+    // MediaPipeのY座標は下向きが正なので反転
+    // 肩から肘へのベクトルで角度を計算
+    const deltaY = -(leftElbow.y - leftShoulder.y) // Y軸を反転
+    const deltaX = leftElbow.x - leftShoulder.x
+    // Z軸回転（上下の動き）- 水平が0、下が負、上が正
+    const zRotation = Math.atan2(deltaY, -deltaX) - Math.PI / 2
+    leftUpperArmNode.rotation.z = Math.PI / 2 * +0.8
+    // // X軸回転（前後の動き）
+    const deltaZ = leftElbow.z - leftShoulder.z
+    const horizontalDist = Math.sqrt(deltaX * deltaX + deltaY * deltaY)
+    const xRotation = Math.atan2(-deltaZ, horizontalDist)
+    // leftUpperArmNode.rotation.x = xRotation
+  }
+  // 左前腕の曲げ
+  const leftLowerArmNode = humanoid.getNormalizedBoneNode("leftLowerArm")
+  const leftWrist = landmarks[PoseLandmark.LEFT_WRIST]
+  if (leftLowerArmNode) {
+    const elbowAngle = calculateElbowAngle(leftShoulder, leftElbow, leftWrist)
+    // leftLowerArmNode.rotation.z = elbowAngle
+  }
+
+  // 右腕（カメラから見て右 = VRMの左）
+  const rightShoulder = landmarks[PoseLandmark.RIGHT_SHOULDER]
+  const rightElbow = landmarks[PoseLandmark.RIGHT_ELBOW]
+  // 右上腕のZ軸回転（肩の上下動き）
+  const rightUpperArmNode = humanoid.getNormalizedBoneNode("rightUpperArm")
+  if (rightUpperArmNode) {
+    // MediaPipeのY座標は下向きが正なので反転
+    const deltaY = -(rightElbow.y - rightShoulder.y) // Y軸を反転
+    const deltaX = rightElbow.x - rightShoulder.x
+    // Z軸回転（上下の動き）- 水平が0、下が正、上が負（左腕と鏡像）
+    const zRotation = Math.atan2(deltaY, deltaX) - Math.PI / 2
+    rightUpperArmNode.rotation.z = Math.PI / 2 * -0.8 // 
+    // X軸回転（前後の動き）
+    const deltaZ = rightElbow.z - rightShoulder.z
+    const horizontalDist = Math.sqrt(deltaX * deltaX + deltaY * deltaY)
+    const xRotation = Math.atan2(-deltaZ, horizontalDist)
+    // rightUpperArmNode.rotation.x = -xRotation
+  }
+  // 右前腕の曲げ
+  const rightLowerArmNode = humanoid.getNormalizedBoneNode("rightLowerArm")
+  const rightWrist = landmarks[PoseLandmark.RIGHT_WRIST]
+  if (rightLowerArmNode) {
+    const elbowAngle = calculateElbowAngle(rightShoulder, rightElbow, rightWrist)
+    // rightLowerArmNode.rotation.z = -elbowAngle
   }
 }
 
-// 腕の角度計算
-const calculateArmAngles = (shoulder: Landmark, elbow: Landmark, wrist: Landmark) => {
-  const dy = elbow.y - shoulder.y
-  const dx = elbow.x - shoulder.x
-  const zRotation = Math.atan2(dy, dx)
-
-  const dz = elbow.z - shoulder.z
-  const horizontalDist = Math.sqrt(dx * dx + dy * dy)
-  const xRotation = Math.atan2(dz, horizontalDist)
-
-  return { z: zRotation, x: xRotation }
-}
-
 // 肘の曲げ角度を計算
+// 返り値: 0（伸ばした状態）から負の値（曲げた状態）
 const calculateElbowAngle = (shoulder: Landmark, elbow: Landmark, wrist: Landmark) => {
+  // 上腕ベクトル（肩→肘）
   const upperArm = {
     x: elbow.x - shoulder.x,
     y: elbow.y - shoulder.y,
     z: elbow.z - shoulder.z,
   }
-
+  // 前腕ベクトル（肘→手首）
   const lowerArm = {
     x: wrist.x - elbow.x,
     y: wrist.y - elbow.y,
     z: wrist.z - elbow.z,
   }
-
+  // 内積を使って2つのベクトル間の角度を計算
   const dot = upperArm.x * lowerArm.x + upperArm.y * lowerArm.y + upperArm.z * lowerArm.z
   const upperLength = Math.sqrt(upperArm.x ** 2 + upperArm.y ** 2 + upperArm.z ** 2)
   const lowerLength = Math.sqrt(lowerArm.x ** 2 + lowerArm.y ** 2 + lowerArm.z ** 2)
-
+  // 0で割るのを防ぐ
+  if (upperLength === 0 || lowerLength === 0) return 0
   const cosAngle = dot / (upperLength * lowerLength)
   const angle = Math.acos(Math.max(-1, Math.min(1, cosAngle)))
-
+  // angleは0（180度、伸ばした状態）からπ（0度、完全に曲げた状態）の範囲
+  // VRMの前腕Z軸回転: 0（伸ばした状態）から負の値（曲げた状態）に変換
+  // π - angle で反転させて、符号を負にする
   return -(Math.PI - angle)
-}
-
-// 頭の回転計算
-const calculateHeadRotation = (nose: Landmark, leftEar: Landmark, rightEar: Landmark) => {
-  const earCenter = {
-    x: (leftEar.x + rightEar.x) / 2,
-    y: (leftEar.y + rightEar.y) / 2,
-  }
-
-  const yaw = -(nose.x - earCenter.x) * 2
-  const pitch = -(nose.y - earCenter.y) * 2
-
-  return { y: yaw, x: pitch }
 }
 
 // 表情をVRMに適用
 export const applyFaceToVRM = (results: FaceResults, vrm: VRM) => {
   if (!results.faceBlendshapes || results.faceBlendshapes.length === 0) return
   if (!vrm.expressionManager) return
-
   const blendshapes = results.faceBlendshapes[0].categories
 
   const blendshapeMap: Record<string, string> = {
@@ -264,7 +263,7 @@ export const applyFaceToVRM = (results: FaceResults, vrm: VRM) => {
   if (blink > 0.9 && vrm.expressionManager) {
     try {
       vrm.expressionManager.setValue("blink", 1.0)
-    } catch (e) {}
+    } catch (e) { }
   }
 
   const smileLeft = blendshapes.find((s) => s.categoryName === "mouthSmileLeft")?.score || 0
@@ -274,6 +273,6 @@ export const applyFaceToVRM = (results: FaceResults, vrm: VRM) => {
   if (smile > 0.3 && vrm.expressionManager) {
     try {
       vrm.expressionManager.setValue("happy", smile)
-    } catch (e) {}
+    } catch (e) { }
   }
 }
