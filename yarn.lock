@@ -678,6 +678,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"kalidokit@npm:^1.1.5":
+  version: 1.1.5
+  resolution: "kalidokit@npm:1.1.5"
+  checksum: 10c0/2d8aab5de2d8af9214c183cadbceadaead5dd3ca86489ff1e40ebeaa60048b21eaff5a5a14e5b2cd72e9f829587805a237d16c8d905ffca02cf4e79239468222
+  languageName: node
+  linkType: hard
+
 "meshoptimizer@npm:~0.22.0":
   version: 0.22.0
   resolution: "meshoptimizer@npm:0.22.0"
@@ -806,6 +813,7 @@ __metadata:
     "@types/node": "npm:25.0.3"
     "@types/react": "npm:19.2.7"
     "@types/three": "npm:^0.182.0"
+    kalidokit: "npm:^1.1.5"
     next: "npm:^16.0.10"
     react: "npm:^19.2.3"
     react-dom: "npm:^19.2.3"

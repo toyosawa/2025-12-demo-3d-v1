@@ -5,8 +5,9 @@ import {
   FaceLandmarker,
   NormalizedLandmark,
 } from "@mediapipe/tasks-vision"
-import { VRMLoaderPlugin, VRM } from "@pixiv/three-vrm"
+import { VRMLoaderPlugin, VRM, VRMExpressionPresetName } from "@pixiv/three-vrm"
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader"
+import * as Kalidokit from "kalidokit"
 
 // Three.jsのセットアップ
 export const setupThree = (canvas: HTMLCanvasElement) => {
@@ -65,86 +66,121 @@ export const setupMediaPipe = async () => {
   return { poseLandmarker, faceLandmarker }
 }
 
-// ポーズをVRMに適用
+// ポーズをVRMに適用（Kalidokit使用）
 export const applyPoseToVRM = (
-  results: { landmarks: NormalizedLandmark[][] },
+  results: { landmarks: NormalizedLandmark[][], worldLandmarks?: NormalizedLandmark[][] },
   vrm: VRM
 ) => {
   if (!results.landmarks || results.landmarks.length === 0) return
   if (!vrm) return
 
   const landmarks = results.landmarks[0]
+  const worldLandmarks = results.worldLandmarks?.[0] || landmarks
+
+  // Kalidokitを使って姿勢を計算
+  const riggedPose = Kalidokit.Pose.solve(worldLandmarks, landmarks, {
+    runtime: "mediapipe",
+    video: undefined as any,
+  })
+
+  if (!riggedPose) return
+
   const humanoid = vrm.humanoid
 
-  // 頭部
-  const nose = landmarks[PoseLandmarkIndexEnum.NOSE]
-  const left_ear = landmarks[PoseLandmarkIndexEnum.LEFT_EAR]
-  const right_ear = landmarks[PoseLandmarkIndexEnum.RIGHT_EAR]
-  const head_node = humanoid.getNormalizedBoneNode("head")
-  if (head_node) {
-    const ear_center = {
-      x: (left_ear.x + right_ear.x) / 2,
-      y: (left_ear.y + right_ear.y) / 2,
-    }
-    head_node.rotation.y = (nose.x - ear_center.x) * Math.PI * 2
-    head_node.rotation.x = -(nose.y - ear_center.y) * Math.PI * 2
+  // 上半身の回転を適用
+  const spine = humanoid.getNormalizedBoneNode("spine")
+  if (spine && riggedPose.Spine) {
+    rigRotation(spine, riggedPose.Spine, 0.25)
   }
 
-  // 左腕（カメラから見て左 = VRMの右）
-  const left_shoulder = landmarks[PoseLandmarkIndexEnum.LEFT_SHOULDER]
-  const left_elbow = landmarks[PoseLandmarkIndexEnum.LEFT_ELBOW]
-  // 左上腕のZ軸回転（肩の上下動き）
-  const left_upper_arm_node = humanoid.getNormalizedBoneNode("leftUpperArm")
-  if (left_upper_arm_node) {
-    // MediaPipeのY座標は下向きが正なので反転
-    // 肩から肘へのベクトルで角度を計算
-    const delta_y = -(left_elbow.y - left_shoulder.y) // Y軸を反転
-    const delta_x = left_elbow.x - left_shoulder.x
-    // Z軸回転（上下の動き）- 水平が0、下が負、上が正
-    const z_rotation = Math.atan2(delta_y, -delta_x) - Math.PI / 2
-    left_upper_arm_node.rotation.z = Math.PI / 2 * +0.8
-    // // X軸回転（前後の動き）
-    const delta_z = left_elbow.z - left_shoulder.z
-    const horizontal_dist = Math.sqrt(delta_x * delta_x + delta_y * delta_y)
-    const x_rotation = Math.atan2(-delta_z, horizontal_dist)
-    // left_upper_arm_node.rotation.x = x_rotation
+  // 胸部の回転を適用
+  const chest = humanoid.getNormalizedBoneNode("chest")
+  if (chest && riggedPose.Spine) {
+    rigRotation(chest, riggedPose.Spine, 0.25)
   }
-  // 左前腕の曲げ
-  const left_lower_arm_node = humanoid.getNormalizedBoneNode("leftLowerArm")
-  const left_wrist = landmarks[PoseLandmarkIndexEnum.LEFT_WRIST]
-  if (left_lower_arm_node) {
-    const shoulder = left_shoulder
-    const elbow = left_elbow
-    const wrist = left_wrist
-    // 上腕ベクトル（肩→肘）
-    const upper_arm = {
-      x: elbow.x - shoulder.x,
-      y: elbow.y - shoulder.y,
-      z: elbow.z - shoulder.z,
-    }
-    // 前腕ベクトル（肘→手首）
-    const lower_arm = {
-      x: wrist.x - elbow.x,
-      y: wrist.y - elbow.y,
-      z: wrist.z - elbow.z,
-    }
-    // 内積を使って2つのベクトル間の角度を計算
-    const dot = upper_arm.x * lower_arm.x + upper_arm.y * lower_arm.y + upper_arm.z * lower_arm.z
-    const upper_length = Math.sqrt(upper_arm.x ** 2 + upper_arm.y ** 2 + upper_arm.z ** 2)
-    const lower_length = Math.sqrt(lower_arm.x ** 2 + lower_arm.y ** 2 + lower_arm.z ** 2)
-    // 0で割るのを防ぐ
-    if (upper_length === 0 || lower_length === 0) return 0
-    const cos_angle = dot / (upper_length * lower_length)
-    const angle = Math.acos(Math.max(-1, Math.min(1, cos_angle)))
-    // angleは0（180度、伸ばした状態）からπ（0度、完全に曲げた状態）の範囲
-    // VRMの前腕Z軸回転: 0（伸ばした状態）から負の値（曲げた状態）に変換
-    // π - angle で反転させて、符号を負にする
-    const elbow_angle = -(Math.PI - angle)
-    // left_lower_arm_node.rotation.z = elbow_angle
+
+  // 首の回転を適用
+  const neck = humanoid.getNormalizedBoneNode("neck")
+  if (neck && riggedPose.Spine) {
+    rigRotation(neck, riggedPose.Spine, 0.25)
+  }
+
+  // 頭部の回転を適用
+  const head = humanoid.getNormalizedBoneNode("head")
+  if (head && riggedPose.Hips?.rotation) {
+    rigRotation(head, riggedPose.Hips.rotation, 1, 0.3)
+  }
+
+  // 腰の回転を適用
+  const hips = humanoid.getNormalizedBoneNode("hips")
+  if (hips && riggedPose.Hips?.rotation) {
+    rigRotation(hips, riggedPose.Hips.rotation, 0.25)
+  }
+
+  // 左腕の回転を適用
+  const leftUpperArm = humanoid.getNormalizedBoneNode("leftUpperArm")
+  if (leftUpperArm && riggedPose.LeftUpperArm) {
+    rigRotation(leftUpperArm, riggedPose.LeftUpperArm, 1, 0.3)
+  }
+
+  const leftLowerArm = humanoid.getNormalizedBoneNode("leftLowerArm")
+  if (leftLowerArm && riggedPose.LeftLowerArm) {
+    rigRotation(leftLowerArm, riggedPose.LeftLowerArm, 1, 0.3)
+  }
+
+  // 右腕の回転を適用
+  const rightUpperArm = humanoid.getNormalizedBoneNode("rightUpperArm")
+  if (rightUpperArm && riggedPose.RightUpperArm) {
+    rigRotation(rightUpperArm, riggedPose.RightUpperArm, 1, 0.3)
+  }
+
+  const rightLowerArm = humanoid.getNormalizedBoneNode("rightLowerArm")
+  if (rightLowerArm && riggedPose.RightLowerArm) {
+    rigRotation(rightLowerArm, riggedPose.RightLowerArm, 1, 0.3)
+  }
+
+  // 左脚の回転を適用
+  const leftUpperLeg = humanoid.getNormalizedBoneNode("leftUpperLeg")
+  if (leftUpperLeg && riggedPose.LeftUpperLeg) {
+    rigRotation(leftUpperLeg, riggedPose.LeftUpperLeg, 1, 0.3)
+  }
+
+  const leftLowerLeg = humanoid.getNormalizedBoneNode("leftLowerLeg")
+  if (leftLowerLeg && riggedPose.LeftLowerLeg) {
+    rigRotation(leftLowerLeg, riggedPose.LeftLowerLeg, 1, 0.3)
+  }
+
+  // 右脚の回転を適用
+  const rightUpperLeg = humanoid.getNormalizedBoneNode("rightUpperLeg")
+  if (rightUpperLeg && riggedPose.RightUpperLeg) {
+    rigRotation(rightUpperLeg, riggedPose.RightUpperLeg, 1, 0.3)
+  }
+
+  const rightLowerLeg = humanoid.getNormalizedBoneNode("rightLowerLeg")
+  if (rightLowerLeg && riggedPose.RightLowerLeg) {
+    rigRotation(rightLowerLeg, riggedPose.RightLowerLeg, 1, 0.3)
   }
 }
 
-// 表情をVRMに適用
+// 回転を適用するヘルパー関数
+const rigRotation = (
+  bone: THREE.Object3D,
+  rotation: { x: number; y: number; z: number },
+  dampener = 1,
+  lerpAmount = 0.3
+) => {
+  if (!rotation) return
+  
+  const euler = new THREE.Euler(
+    rotation.x * dampener,
+    rotation.y * dampener,
+    rotation.z * dampener
+  )
+  const quaternion = new THREE.Quaternion().setFromEuler(euler)
+  bone.quaternion.slerp(quaternion, lerpAmount)
+}
+
+// 表情をVRMに適用（Kalidokit使用）
 export const applyFaceToVRM = (results: {
   faceBlendshapes: {
     categories: {
@@ -152,52 +188,113 @@ export const applyFaceToVRM = (results: {
       score: number
     }[]
   }[]
+  faceLandmarks?: NormalizedLandmark[][]
 }, vrm: VRM) => {
   if (!results.faceBlendshapes || results.faceBlendshapes.length === 0) return
   if (!vrm.expressionManager) return
-  const blendshapes = results.faceBlendshapes[0].categories
 
-  const blendshape_map: Record<string, string> = {
+  const blendshapes = results.faceBlendshapes[0].categories
+  const faceLandmarks = results.faceLandmarks?.[0]
+
+  // Kalidokitで顔の姿勢を計算
+  if (faceLandmarks) {
+    const riggedFace = Kalidokit.Face.solve(faceLandmarks, {
+      runtime: "mediapipe",
+      video: undefined as any,
+    })
+
+    if (riggedFace) {
+      // 頭部の回転を適用
+      const head = vrm.humanoid.getNormalizedBoneNode("head")
+      if (head && riggedFace.head) {
+        rigRotation(head, riggedFace.head, 1, 0.7)
+      }
+
+      // 瞳の回転
+      if (riggedFace.pupil) {
+        const leftEye = vrm.humanoid.getNormalizedBoneNode("leftEye")
+        const rightEye = vrm.humanoid.getNormalizedBoneNode("rightEye")
+        
+        // 左右の瞳が追従
+        if (leftEye) {
+          leftEye.rotation.y = riggedFace.pupil.x
+          leftEye.rotation.z = riggedFace.pupil.y
+        }
+        if (rightEye) {
+          rightEye.rotation.y = riggedFace.pupil.x
+          rightEye.rotation.z = riggedFace.pupil.y
+        }
+      }
+    }
+  }
+
+  // 表情のブレンドシェイプを適用
+  const blendshape_map: Record<string, VRMExpressionPresetName | string> = {
     eyeBlinkLeft: "blinkLeft",
     eyeBlinkRight: "blinkRight",
     jawOpen: "aa",
-    mouthSmileLeft: "joy",
-    mouthSmileRight: "joy",
+    mouthSmileLeft: "happy",
+    mouthSmileRight: "happy",
     browDownLeft: "angry",
     browDownRight: "angry",
-    mouthFrownLeft: "sorrow",
-    mouthFrownRight: "sorrow",
+    mouthFrownLeft: "sad",
+    mouthFrownRight: "sad",
   }
+
+  // すべての表情をリセット
+  vrm.expressionManager.setValue("aa", 0)
+  vrm.expressionManager.setValue("ih", 0)
+  vrm.expressionManager.setValue("ou", 0)
+  vrm.expressionManager.setValue("ee", 0)
+  vrm.expressionManager.setValue("oh", 0)
+  vrm.expressionManager.setValue("blink", 0)
+  vrm.expressionManager.setValue("blinkLeft", 0)
+  vrm.expressionManager.setValue("blinkRight", 0)
+  vrm.expressionManager.setValue("happy", 0)
+  vrm.expressionManager.setValue("angry", 0)
+  vrm.expressionManager.setValue("sad", 0)
+  vrm.expressionManager.setValue("relaxed", 0)
 
   blendshapes.forEach((shape) => {
     const vrm_expression = blendshape_map[shape.categoryName]
     if (vrm_expression && shape.score > 0.1 && vrm.expressionManager) {
       try {
-        vrm.expressionManager.setValue(vrm_expression, shape.score)
+        vrm.expressionManager.setValue(vrm_expression as VRMExpressionPresetName, shape.score)
       } catch (e) {
         // 対応していない表情は無視
       }
     }
   })
 
+  // まばたき処理
   const blink_left = blendshapes.find((s) => s.categoryName === "eyeBlinkLeft")?.score || 0
   const blink_right = blendshapes.find((s) => s.categoryName === "eyeBlinkRight")?.score || 0
-  const blink = (blink_left + blink_right) / 2
-
-  if (blink > 0.9 && vrm.expressionManager) {
-    try {
-      vrm.expressionManager.setValue("blink", 1.0)
-    } catch (e) { }
+  
+  if (blink_left > 0.5) {
+    vrm.expressionManager.setValue("blinkLeft", blink_left)
+  }
+  if (blink_right > 0.5) {
+    vrm.expressionManager.setValue("blinkRight", blink_right)
   }
 
+  const blink = (blink_left + blink_right) / 2
+  if (blink > 0.6) {
+    vrm.expressionManager.setValue("blink", blink)
+  }
+
+  // 笑顔処理
   const smile_left = blendshapes.find((s) => s.categoryName === "mouthSmileLeft")?.score || 0
   const smile_right = blendshapes.find((s) => s.categoryName === "mouthSmileRight")?.score || 0
   const smile = Math.max(smile_left, smile_right)
 
-  if (smile > 0.3 && vrm.expressionManager) {
-    try {
-      vrm.expressionManager.setValue("happy", smile)
-    } catch (e) { }
+  if (smile > 0.3) {
+    vrm.expressionManager.setValue("happy", smile)
+  }
+
+  // 口の開き
+  const mouth_open = blendshapes.find((s) => s.categoryName === "jawOpen")?.score || 0
+  if (mouth_open > 0.3) {
+    vrm.expressionManager.setValue("aa", mouth_open)
   }
 }
 
