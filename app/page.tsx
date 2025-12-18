@@ -9,99 +9,99 @@ import { setupThree, setupVRMFromURL, setupMediaPipe, applyPoseToVRM, applyFaceT
 const VRM_MODEL_URL = "https://cdn.glitch.com/29e07830-2317-4b15-a044-135e73c7f840%2FAshtra.vrm"
 
 export default function Home() {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const [status, setStatus] = useState("待機中...")
+  const canvas_ref = useRef<HTMLCanvasElement>(null)
+  const video_ref = useRef<HTMLVideoElement>(null)
+  const [status, set_status] = useState("待機中...")
 
   // Three.jsとMediaPipeの参照
-  const sceneRef = useRef<THREE.Scene | null>(null)
-  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null)
-  const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
-  const vrmRef = useRef<VRM | null>(null)
-  const poseLandmarkerRef = useRef<PoseLandmarker | null>(null)
-  const faceLandmarkerRef = useRef<FaceLandmarker | null>(null)
-  const isProcessingRef = useRef(false)
-  const animationIdRef = useRef<number | null>(null)
+  const scene_ref = useRef<THREE.Scene | null>(null)
+  const camera_ref = useRef<THREE.PerspectiveCamera | null>(null)
+  const renderer_ref = useRef<THREE.WebGLRenderer | null>(null)
+  const vrm_ref = useRef<VRM | null>(null)
+  const pose_landmarker_ref = useRef<PoseLandmarker | null>(null)
+  const face_landmarker_ref = useRef<FaceLandmarker | null>(null)
+  const is_processing_ref = useRef(false)
+  const animation_id_ref = useRef<number | null>(null)
 
-  const applyPoseToVRMFunctionRef = useRef(applyPoseToVRM)
-  applyPoseToVRMFunctionRef.current = applyPoseToVRM
+  const apply_pose_to_vrm_function_ref = useRef(applyPoseToVRM)
+  apply_pose_to_vrm_function_ref.current = applyPoseToVRM
   
-  const applyFaceToVRMFunctionRef = useRef(applyFaceToVRM)
-  applyFaceToVRMFunctionRef.current = applyFaceToVRM
+  const apply_face_to_vrm_function_ref = useRef(applyFaceToVRM)
+  apply_face_to_vrm_function_ref.current = applyFaceToVRM
 
   // Three.jsのセットアップ
-  const initThreeJS = () => {
-    if (!canvasRef.current) return
+  const init_three_js = () => {
+    if (!canvas_ref.current) return
 
-    const canvas = canvasRef.current
+    const canvas = canvas_ref.current
     const { scene, camera, renderer } = setupThree(canvas)
-    sceneRef.current = scene
-    cameraRef.current = camera
-    rendererRef.current = renderer
+    scene_ref.current = scene
+    camera_ref.current = camera
+    renderer_ref.current = renderer
 
-    const handleResize = () => {
-      if (!cameraRef.current || !rendererRef.current) return
-      cameraRef.current.aspect = window.innerWidth / window.innerHeight
-      cameraRef.current.updateProjectionMatrix()
-      rendererRef.current.setSize(window.innerWidth, window.innerHeight)
+    const handle_resize = () => {
+      if (!camera_ref.current || !renderer_ref.current) return
+      camera_ref.current.aspect = window.innerWidth / window.innerHeight
+      camera_ref.current.updateProjectionMatrix()
+      renderer_ref.current.setSize(window.innerWidth, window.innerHeight)
     }
 
-    window.addEventListener("resize", handleResize)
+    window.addEventListener("resize", handle_resize)
 
     const animate = () => {
-      animationIdRef.current = requestAnimationFrame(animate)
-      if (vrmRef.current) {
-        vrmRef.current.update(0.016)
+      animation_id_ref.current = requestAnimationFrame(animate)
+      if (vrm_ref.current) {
+        vrm_ref.current.update(0.016)
       }
-      if (rendererRef.current && sceneRef.current && cameraRef.current) {
-        rendererRef.current.render(sceneRef.current, cameraRef.current)
+      if (renderer_ref.current && scene_ref.current && camera_ref.current) {
+        renderer_ref.current.render(scene_ref.current, camera_ref.current)
       }
     }
     animate()
 
-    setStatus("Three.js初期化完了")
+    set_status("Three.js初期化完了")
 
     return () => {
-      window.removeEventListener("resize", handleResize)
-      if (animationIdRef.current) {
-        cancelAnimationFrame(animationIdRef.current)
+      window.removeEventListener("resize", handle_resize)
+      if (animation_id_ref.current) {
+        cancelAnimationFrame(animation_id_ref.current)
       }
     }
   }
 
   // VRMモデルのロード
-  const loadVRMModel = async () => {
-    if (!sceneRef.current) return
+  const load_vrm_model = async () => {
+    if (!scene_ref.current) return
     try {
-      setStatus("VRMモデル読込中...")
+      set_status("VRMモデル読込中...")
 
       const vrm = await setupVRMFromURL(VRM_MODEL_URL)
-      sceneRef.current.add(vrm.scene)
+      scene_ref.current.add(vrm.scene)
       VRMUtils.rotateVRM0(vrm)
-      vrmRef.current = vrm
+      vrm_ref.current = vrm
 
-      setStatus("VRMモデル読込完了")
+      set_status("VRMモデル読込完了")
       console.log("VRM Model loaded:", vrm)
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "不明なエラー"
-      setStatus("VRMモデル読込エラー: " + errorMessage)
+      const error_message = error instanceof Error ? error.message : "不明なエラー"
+      set_status("VRMモデル読込エラー: " + error_message)
       console.error(error)
     }
   }
 
   // MediaPipeのセットアップ
-  const initMediaPipe = async () => {
-    setStatus("MediaPipe初期化中...")
+  const init_media_pipe = async () => {
+    set_status("MediaPipe初期化中...")
     const { poseLandmarker, faceLandmarker } = await setupMediaPipe()
-    poseLandmarkerRef.current = poseLandmarker
-    faceLandmarkerRef.current = faceLandmarker
+    pose_landmarker_ref.current = poseLandmarker
+    face_landmarker_ref.current = faceLandmarker
 
-    setStatus("MediaPipe初期化完了")
+    set_status("MediaPipe初期化完了")
   }
 
   // カメラの起動
-  const startCamera = async () => {
-    const video = videoRef.current
+  const start_camera = async () => {
+    const video = video_ref.current
     if (!video) return
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -109,62 +109,62 @@ export default function Home() {
       })
       video.srcObject = stream
       video.addEventListener("loadeddata", () => {
-        setStatus("カメラ起動完了 - 処理開始")
-        processFrame()
+        set_status("カメラ起動完了 - 処理開始")
+        process_frame()
       })
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "不明なエラー"
-      setStatus("カメラエラー: " + errorMessage)
+      const error_message = error instanceof Error ? error.message : "不明なエラー"
+      set_status("カメラエラー: " + error_message)
       console.error(error)
     }
   }
 
   // フレーム処理
-  const processFrame = () => {
-    const video = videoRef.current
+  const process_frame = () => {
+    const video = video_ref.current
     if (!video || video.readyState !== 4) {
-      requestAnimationFrame(processFrame)
+      requestAnimationFrame(process_frame)
       return
     }
-    if (isProcessingRef.current) {
-      requestAnimationFrame(processFrame)
+    if (is_processing_ref.current) {
+      requestAnimationFrame(process_frame)
       return
     }
-    isProcessingRef.current = true
-    const startTimeMs = performance.now()
+    is_processing_ref.current = true
+    const start_time_ms = performance.now()
 
     try {
-      if (poseLandmarkerRef.current && vrmRef.current) {
-        const poseResults = poseLandmarkerRef.current.detectForVideo(video, startTimeMs)
-        applyPoseToVRMFunctionRef.current?.(poseResults, vrmRef.current)
+      if (pose_landmarker_ref.current && vrm_ref.current) {
+        const pose_results = pose_landmarker_ref.current.detectForVideo(video, start_time_ms)
+        apply_pose_to_vrm_function_ref.current?.(pose_results, vrm_ref.current)
       }
-      if (faceLandmarkerRef.current && vrmRef.current) {
-        const faceResults = faceLandmarkerRef.current.detectForVideo(video, startTimeMs)
-        applyFaceToVRMFunctionRef.current?.(faceResults, vrmRef.current)
+      if (face_landmarker_ref.current && vrm_ref.current) {
+        const face_results = face_landmarker_ref.current.detectForVideo(video, start_time_ms)
+        apply_face_to_vrm_function_ref.current?.(face_results, vrm_ref.current)
       }
     } catch (error) {
       console.error("Detection error:", error)
     }
-    isProcessingRef.current = false
-    requestAnimationFrame(processFrame)
+    is_processing_ref.current = false
+    requestAnimationFrame(process_frame)
   }
 
   // 初期化
   useEffect(() => {
     const init = async () => {
-      initThreeJS()
-      await initMediaPipe()
-      await loadVRMModel()
+      init_three_js()
+      await init_media_pipe()
+      await load_vrm_model()
     }
 
     init()
 
     return () => {
-      if (animationIdRef.current) {
-        cancelAnimationFrame(animationIdRef.current)
+      if (animation_id_ref.current) {
+        cancelAnimationFrame(animation_id_ref.current)
       }
-      if (rendererRef.current) {
-        rendererRef.current.dispose()
+      if (renderer_ref.current) {
+        renderer_ref.current.dispose()
       }
     }
   }, [])
@@ -173,7 +173,7 @@ export default function Home() {
     <div style={{ margin: 0, overflow: "hidden", fontFamily: "sans-serif" }}>
       <div style={{ position: "relative", width: "100vw", height: "100vh" }}>
         <canvas
-          ref={canvasRef}
+          ref={canvas_ref}
           style={{
             position: "absolute",
             top: 0,
@@ -183,7 +183,7 @@ export default function Home() {
           }}
         />
         <video
-          ref={videoRef}
+          ref={video_ref}
           autoPlay
           playsInline
           style={{
@@ -210,7 +210,7 @@ export default function Home() {
           }}
         >
           <button
-            onClick={startCamera}
+            onClick={start_camera}
             style={{
               margin: "5px 0",
               padding: "8px 12px",

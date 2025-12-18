@@ -21,8 +21,8 @@ export const setupThree = (canvas: HTMLCanvasElement) => {
   scene.add(light)
   scene.add(new THREE.AmbientLight(0xffffff, 0.5))
 
-  const gridHelper = new THREE.GridHelper(10, 10)
-  scene.add(gridHelper)
+  const grid_helper = new THREE.GridHelper(10, 10)
+  scene.add(grid_helper)
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
   renderer.setSize(window.innerWidth, window.innerHeight)
   renderer.setPixelRatio(window.devicePixelRatio)
@@ -78,105 +78,70 @@ export const applyPoseToVRM = (
 
   // 頭部
   const nose = landmarks[PoseLandmarkIndexEnum.NOSE]
-  const leftEar = landmarks[PoseLandmarkIndexEnum.LEFT_EAR]
-  const rightEar = landmarks[PoseLandmarkIndexEnum.RIGHT_EAR]
-  const headNode = humanoid.getNormalizedBoneNode("head")
-  if (headNode) {
-    const earCenter = {
-      x: (leftEar.x + rightEar.x) / 2,
-      y: (leftEar.y + rightEar.y) / 2,
+  const left_ear = landmarks[PoseLandmarkIndexEnum.LEFT_EAR]
+  const right_ear = landmarks[PoseLandmarkIndexEnum.RIGHT_EAR]
+  const head_node = humanoid.getNormalizedBoneNode("head")
+  if (head_node) {
+    const ear_center = {
+      x: (left_ear.x + right_ear.x) / 2,
+      y: (left_ear.y + right_ear.y) / 2,
     }
-    const yaw = (nose.x - earCenter.x) * Math.PI * 2
-    const pitch = -(nose.y - earCenter.y) * Math.PI * 2
-    headNode.rotation.y = yaw
-    headNode.rotation.x = pitch
+    head_node.rotation.y = (nose.x - ear_center.x) * Math.PI * 2
+    head_node.rotation.x = -(nose.y - ear_center.y) * Math.PI * 2
   }
 
   // 左腕（カメラから見て左 = VRMの右）
-  const leftShoulder = landmarks[PoseLandmarkIndexEnum.LEFT_SHOULDER]
-  const leftElbow = landmarks[PoseLandmarkIndexEnum.LEFT_ELBOW]
+  const left_shoulder = landmarks[PoseLandmarkIndexEnum.LEFT_SHOULDER]
+  const left_elbow = landmarks[PoseLandmarkIndexEnum.LEFT_ELBOW]
   // 左上腕のZ軸回転（肩の上下動き）
-  const leftUpperArmNode = humanoid.getNormalizedBoneNode("leftUpperArm")
-  if (leftUpperArmNode) {
+  const left_upper_arm_node = humanoid.getNormalizedBoneNode("leftUpperArm")
+  if (left_upper_arm_node) {
     // MediaPipeのY座標は下向きが正なので反転
     // 肩から肘へのベクトルで角度を計算
-    const deltaY = -(leftElbow.y - leftShoulder.y) // Y軸を反転
-    const deltaX = leftElbow.x - leftShoulder.x
+    const delta_y = -(left_elbow.y - left_shoulder.y) // Y軸を反転
+    const delta_x = left_elbow.x - left_shoulder.x
     // Z軸回転（上下の動き）- 水平が0、下が負、上が正
-    const zRotation = Math.atan2(deltaY, -deltaX) - Math.PI / 2
-    leftUpperArmNode.rotation.z = Math.PI / 2 * +0.8
+    const z_rotation = Math.atan2(delta_y, -delta_x) - Math.PI / 2
+    left_upper_arm_node.rotation.z = Math.PI / 2 * +0.8
     // // X軸回転（前後の動き）
-    const deltaZ = leftElbow.z - leftShoulder.z
-    const horizontalDist = Math.sqrt(deltaX * deltaX + deltaY * deltaY)
-    const xRotation = Math.atan2(-deltaZ, horizontalDist)
-    // leftUpperArmNode.rotation.x = xRotation
+    const delta_z = left_elbow.z - left_shoulder.z
+    const horizontal_dist = Math.sqrt(delta_x * delta_x + delta_y * delta_y)
+    const x_rotation = Math.atan2(-delta_z, horizontal_dist)
+    // left_upper_arm_node.rotation.x = x_rotation
   }
   // 左前腕の曲げ
-  const leftLowerArmNode = humanoid.getNormalizedBoneNode("leftLowerArm")
-  const leftWrist = landmarks[PoseLandmarkIndexEnum.LEFT_WRIST]
-  if (leftLowerArmNode) {
-    const shoulder = leftShoulder
-    const elbow = leftElbow
-    const wrist = leftWrist
+  const left_lower_arm_node = humanoid.getNormalizedBoneNode("leftLowerArm")
+  const left_wrist = landmarks[PoseLandmarkIndexEnum.LEFT_WRIST]
+  if (left_lower_arm_node) {
+    const shoulder = left_shoulder
+    const elbow = left_elbow
+    const wrist = left_wrist
     // 上腕ベクトル（肩→肘）
-    const upperArm = {
+    const upper_arm = {
       x: elbow.x - shoulder.x,
       y: elbow.y - shoulder.y,
       z: elbow.z - shoulder.z,
     }
     // 前腕ベクトル（肘→手首）
-    const lowerArm = {
+    const lower_arm = {
       x: wrist.x - elbow.x,
       y: wrist.y - elbow.y,
       z: wrist.z - elbow.z,
     }
     // 内積を使って2つのベクトル間の角度を計算
-    const dot = upperArm.x * lowerArm.x + upperArm.y * lowerArm.y + upperArm.z * lowerArm.z
-    const upperLength = Math.sqrt(upperArm.x ** 2 + upperArm.y ** 2 + upperArm.z ** 2)
-    const lowerLength = Math.sqrt(lowerArm.x ** 2 + lowerArm.y ** 2 + lowerArm.z ** 2)
+    const dot = upper_arm.x * lower_arm.x + upper_arm.y * lower_arm.y + upper_arm.z * lower_arm.z
+    const upper_length = Math.sqrt(upper_arm.x ** 2 + upper_arm.y ** 2 + upper_arm.z ** 2)
+    const lower_length = Math.sqrt(lower_arm.x ** 2 + lower_arm.y ** 2 + lower_arm.z ** 2)
     // 0で割るのを防ぐ
-    if (upperLength === 0 || lowerLength === 0) return 0
-    const cosAngle = dot / (upperLength * lowerLength)
-    const angle = Math.acos(Math.max(-1, Math.min(1, cosAngle)))
+    if (upper_length === 0 || lower_length === 0) return 0
+    const cos_angle = dot / (upper_length * lower_length)
+    const angle = Math.acos(Math.max(-1, Math.min(1, cos_angle)))
     // angleは0（180度、伸ばした状態）からπ（0度、完全に曲げた状態）の範囲
     // VRMの前腕Z軸回転: 0（伸ばした状態）から負の値（曲げた状態）に変換
     // π - angle で反転させて、符号を負にする
-    const elbowAngle = -(Math.PI - angle)
-    // leftLowerArmNode.rotation.z = elbowAngle
+    const elbow_angle = -(Math.PI - angle)
+    // left_lower_arm_node.rotation.z = elbow_angle
   }
-}
-
-// 肘の曲げ角度を計算
-// 返り値: 0（伸ばした状態）から負の値（曲げた状態）
-const calculateElbowAngle = (
-  shoulder: NormalizedLandmark,
-  elbow: NormalizedLandmark,
-  wrist: NormalizedLandmark
-) => {
-  // 上腕ベクトル（肩→肘）
-  const upperArm = {
-    x: elbow.x - shoulder.x,
-    y: elbow.y - shoulder.y,
-    z: elbow.z - shoulder.z,
-  }
-  // 前腕ベクトル（肘→手首）
-  const lowerArm = {
-    x: wrist.x - elbow.x,
-    y: wrist.y - elbow.y,
-    z: wrist.z - elbow.z,
-  }
-  // 内積を使って2つのベクトル間の角度を計算
-  const dot = upperArm.x * lowerArm.x + upperArm.y * lowerArm.y + upperArm.z * lowerArm.z
-  const upperLength = Math.sqrt(upperArm.x ** 2 + upperArm.y ** 2 + upperArm.z ** 2)
-  const lowerLength = Math.sqrt(lowerArm.x ** 2 + lowerArm.y ** 2 + lowerArm.z ** 2)
-  // 0で割るのを防ぐ
-  if (upperLength === 0 || lowerLength === 0) return 0
-  const cosAngle = dot / (upperLength * lowerLength)
-  const angle = Math.acos(Math.max(-1, Math.min(1, cosAngle)))
-  // angleは0（180度、伸ばした状態）からπ（0度、完全に曲げた状態）の範囲
-  // VRMの前腕Z軸回転: 0（伸ばした状態）から負の値（曲げた状態）に変換
-  // π - angle で反転させて、符号を負にする
-  return -(Math.PI - angle)
 }
 
 // 表情をVRMに適用
@@ -192,7 +157,7 @@ export const applyFaceToVRM = (results: {
   if (!vrm.expressionManager) return
   const blendshapes = results.faceBlendshapes[0].categories
 
-  const blendshapeMap: Record<string, string> = {
+  const blendshape_map: Record<string, string> = {
     eyeBlinkLeft: "blinkLeft",
     eyeBlinkRight: "blinkRight",
     jawOpen: "aa",
@@ -205,19 +170,19 @@ export const applyFaceToVRM = (results: {
   }
 
   blendshapes.forEach((shape) => {
-    const vrmExpression = blendshapeMap[shape.categoryName]
-    if (vrmExpression && shape.score > 0.1 && vrm.expressionManager) {
+    const vrm_expression = blendshape_map[shape.categoryName]
+    if (vrm_expression && shape.score > 0.1 && vrm.expressionManager) {
       try {
-        vrm.expressionManager.setValue(vrmExpression, shape.score)
+        vrm.expressionManager.setValue(vrm_expression, shape.score)
       } catch (e) {
         // 対応していない表情は無視
       }
     }
   })
 
-  const blinkLeft = blendshapes.find((s) => s.categoryName === "eyeBlinkLeft")?.score || 0
-  const blinkRight = blendshapes.find((s) => s.categoryName === "eyeBlinkRight")?.score || 0
-  const blink = (blinkLeft + blinkRight) / 2
+  const blink_left = blendshapes.find((s) => s.categoryName === "eyeBlinkLeft")?.score || 0
+  const blink_right = blendshapes.find((s) => s.categoryName === "eyeBlinkRight")?.score || 0
+  const blink = (blink_left + blink_right) / 2
 
   if (blink > 0.9 && vrm.expressionManager) {
     try {
@@ -225,9 +190,9 @@ export const applyFaceToVRM = (results: {
     } catch (e) { }
   }
 
-  const smileLeft = blendshapes.find((s) => s.categoryName === "mouthSmileLeft")?.score || 0
-  const smileRight = blendshapes.find((s) => s.categoryName === "mouthSmileRight")?.score || 0
-  const smile = Math.max(smileLeft, smileRight)
+  const smile_left = blendshapes.find((s) => s.categoryName === "mouthSmileLeft")?.score || 0
+  const smile_right = blendshapes.find((s) => s.categoryName === "mouthSmileRight")?.score || 0
+  const smile = Math.max(smile_left, smile_right)
 
   if (smile > 0.3 && vrm.expressionManager) {
     try {
