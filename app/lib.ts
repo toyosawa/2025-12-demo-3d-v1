@@ -1,67 +1,12 @@
 import * as THREE from "three"
-import { FilesetResolver, PoseLandmarker, FaceLandmarker } from "@mediapipe/tasks-vision"
+import {
+  FilesetResolver,
+  PoseLandmarker,
+  FaceLandmarker,
+  NormalizedLandmark,
+} from "@mediapipe/tasks-vision"
 import { VRMLoaderPlugin, VRM } from "@pixiv/three-vrm"
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader"
-
-// 型定義
-interface Landmark {
-  x: number
-  y: number
-  z: number
-  visibility?: number
-}
-
-// MediaPipe Pose Landmarkのインデックス定義
-const PoseLandmark = {
-  NOSE: 0,
-  LEFT_EYE_INNER: 1,
-  LEFT_EYE: 2,
-  LEFT_EYE_OUTER: 3,
-  RIGHT_EYE_INNER: 4,
-  RIGHT_EYE: 5,
-  RIGHT_EYE_OUTER: 6,
-  LEFT_EAR: 7,
-  RIGHT_EAR: 8,
-  MOUTH_LEFT: 9,
-  MOUTH_RIGHT: 10,
-  LEFT_SHOULDER: 11,
-  RIGHT_SHOULDER: 12,
-  LEFT_ELBOW: 13,
-  RIGHT_ELBOW: 14,
-  LEFT_WRIST: 15,
-  RIGHT_WRIST: 16,
-  LEFT_PINKY: 17,
-  RIGHT_PINKY: 18,
-  LEFT_INDEX: 19,
-  RIGHT_INDEX: 20,
-  LEFT_THUMB: 21,
-  RIGHT_THUMB: 22,
-  LEFT_HIP: 23,
-  RIGHT_HIP: 24,
-  LEFT_KNEE: 25,
-  RIGHT_KNEE: 26,
-  LEFT_ANKLE: 27,
-  RIGHT_ANKLE: 28,
-  LEFT_HEEL: 29,
-  RIGHT_HEEL: 30,
-  LEFT_FOOT_INDEX: 31,
-  RIGHT_FOOT_INDEX: 32,
-} as const
-
-interface PoseResults {
-  landmarks: Landmark[][]
-}
-
-interface BlendshapeCategory {
-  categoryName: string
-  score: number
-}
-
-interface FaceResults {
-  faceBlendshapes: {
-    categories: BlendshapeCategory[]
-  }[]
-}
 
 // Three.jsのセットアップ
 export const setupThree = (canvas: HTMLCanvasElement) => {
@@ -121,7 +66,10 @@ export const setupMediaPipe = async () => {
 }
 
 // ポーズをVRMに適用
-export const applyPoseToVRM = (results: PoseResults, vrm: VRM) => {
+export const applyPoseToVRM = (
+  results: { landmarks: NormalizedLandmark[][] },
+  vrm: VRM
+) => {
   if (!results.landmarks || results.landmarks.length === 0) return
   if (!vrm) return
 
@@ -129,9 +77,9 @@ export const applyPoseToVRM = (results: PoseResults, vrm: VRM) => {
   const humanoid = vrm.humanoid
 
   // 頭部
-  const nose = landmarks[PoseLandmark.NOSE]
-  const leftEar = landmarks[PoseLandmark.LEFT_EAR]
-  const rightEar = landmarks[PoseLandmark.RIGHT_EAR]
+  const nose = landmarks[PoseLandmarkIndexEnum.NOSE]
+  const leftEar = landmarks[PoseLandmarkIndexEnum.LEFT_EAR]
+  const rightEar = landmarks[PoseLandmarkIndexEnum.RIGHT_EAR]
   const headNode = humanoid.getNormalizedBoneNode("head")
   if (headNode) {
     const earCenter = {
@@ -145,8 +93,8 @@ export const applyPoseToVRM = (results: PoseResults, vrm: VRM) => {
   }
 
   // 左腕（カメラから見て左 = VRMの右）
-  const leftShoulder = landmarks[PoseLandmark.LEFT_SHOULDER]
-  const leftElbow = landmarks[PoseLandmark.LEFT_ELBOW]
+  const leftShoulder = landmarks[PoseLandmarkIndexEnum.LEFT_SHOULDER]
+  const leftElbow = landmarks[PoseLandmarkIndexEnum.LEFT_ELBOW]
   // 左上腕のZ軸回転（肩の上下動き）
   const leftUpperArmNode = humanoid.getNormalizedBoneNode("leftUpperArm")
   if (leftUpperArmNode) {
@@ -165,42 +113,46 @@ export const applyPoseToVRM = (results: PoseResults, vrm: VRM) => {
   }
   // 左前腕の曲げ
   const leftLowerArmNode = humanoid.getNormalizedBoneNode("leftLowerArm")
-  const leftWrist = landmarks[PoseLandmark.LEFT_WRIST]
+  const leftWrist = landmarks[PoseLandmarkIndexEnum.LEFT_WRIST]
   if (leftLowerArmNode) {
-    const elbowAngle = calculateElbowAngle(leftShoulder, leftElbow, leftWrist)
+    const shoulder = leftShoulder
+    const elbow = leftElbow
+    const wrist = leftWrist
+    // 上腕ベクトル（肩→肘）
+    const upperArm = {
+      x: elbow.x - shoulder.x,
+      y: elbow.y - shoulder.y,
+      z: elbow.z - shoulder.z,
+    }
+    // 前腕ベクトル（肘→手首）
+    const lowerArm = {
+      x: wrist.x - elbow.x,
+      y: wrist.y - elbow.y,
+      z: wrist.z - elbow.z,
+    }
+    // 内積を使って2つのベクトル間の角度を計算
+    const dot = upperArm.x * lowerArm.x + upperArm.y * lowerArm.y + upperArm.z * lowerArm.z
+    const upperLength = Math.sqrt(upperArm.x ** 2 + upperArm.y ** 2 + upperArm.z ** 2)
+    const lowerLength = Math.sqrt(lowerArm.x ** 2 + lowerArm.y ** 2 + lowerArm.z ** 2)
+    // 0で割るのを防ぐ
+    if (upperLength === 0 || lowerLength === 0) return 0
+    const cosAngle = dot / (upperLength * lowerLength)
+    const angle = Math.acos(Math.max(-1, Math.min(1, cosAngle)))
+    // angleは0（180度、伸ばした状態）からπ（0度、完全に曲げた状態）の範囲
+    // VRMの前腕Z軸回転: 0（伸ばした状態）から負の値（曲げた状態）に変換
+    // π - angle で反転させて、符号を負にする
+    const elbowAngle = -(Math.PI - angle)
     // leftLowerArmNode.rotation.z = elbowAngle
-  }
-
-  // 右腕（カメラから見て右 = VRMの左）
-  const rightShoulder = landmarks[PoseLandmark.RIGHT_SHOULDER]
-  const rightElbow = landmarks[PoseLandmark.RIGHT_ELBOW]
-  // 右上腕のZ軸回転（肩の上下動き）
-  const rightUpperArmNode = humanoid.getNormalizedBoneNode("rightUpperArm")
-  if (rightUpperArmNode) {
-    // MediaPipeのY座標は下向きが正なので反転
-    const deltaY = -(rightElbow.y - rightShoulder.y) // Y軸を反転
-    const deltaX = rightElbow.x - rightShoulder.x
-    // Z軸回転（上下の動き）- 水平が0、下が正、上が負（左腕と鏡像）
-    const zRotation = Math.atan2(deltaY, deltaX) - Math.PI / 2
-    rightUpperArmNode.rotation.z = Math.PI / 2 * -0.8 // 
-    // X軸回転（前後の動き）
-    const deltaZ = rightElbow.z - rightShoulder.z
-    const horizontalDist = Math.sqrt(deltaX * deltaX + deltaY * deltaY)
-    const xRotation = Math.atan2(-deltaZ, horizontalDist)
-    // rightUpperArmNode.rotation.x = -xRotation
-  }
-  // 右前腕の曲げ
-  const rightLowerArmNode = humanoid.getNormalizedBoneNode("rightLowerArm")
-  const rightWrist = landmarks[PoseLandmark.RIGHT_WRIST]
-  if (rightLowerArmNode) {
-    const elbowAngle = calculateElbowAngle(rightShoulder, rightElbow, rightWrist)
-    // rightLowerArmNode.rotation.z = -elbowAngle
   }
 }
 
 // 肘の曲げ角度を計算
 // 返り値: 0（伸ばした状態）から負の値（曲げた状態）
-const calculateElbowAngle = (shoulder: Landmark, elbow: Landmark, wrist: Landmark) => {
+const calculateElbowAngle = (
+  shoulder: NormalizedLandmark,
+  elbow: NormalizedLandmark,
+  wrist: NormalizedLandmark
+) => {
   // 上腕ベクトル（肩→肘）
   const upperArm = {
     x: elbow.x - shoulder.x,
@@ -228,7 +180,14 @@ const calculateElbowAngle = (shoulder: Landmark, elbow: Landmark, wrist: Landmar
 }
 
 // 表情をVRMに適用
-export const applyFaceToVRM = (results: FaceResults, vrm: VRM) => {
+export const applyFaceToVRM = (results: {
+  faceBlendshapes: {
+    categories: {
+      categoryName: string
+      score: number
+    }[]
+  }[]
+}, vrm: VRM) => {
   if (!results.faceBlendshapes || results.faceBlendshapes.length === 0) return
   if (!vrm.expressionManager) return
   const blendshapes = results.faceBlendshapes[0].categories
@@ -245,7 +204,7 @@ export const applyFaceToVRM = (results: FaceResults, vrm: VRM) => {
     mouthFrownRight: "sorrow",
   }
 
-  blendshapes.forEach((shape: BlendshapeCategory) => {
+  blendshapes.forEach((shape) => {
     const vrmExpression = blendshapeMap[shape.categoryName]
     if (vrmExpression && shape.score > 0.1 && vrm.expressionManager) {
       try {
@@ -276,3 +235,40 @@ export const applyFaceToVRM = (results: FaceResults, vrm: VRM) => {
     } catch (e) { }
   }
 }
+
+// MediaPipe Pose Landmarkのインデックス定義
+const PoseLandmarkIndexEnum = {
+  NOSE: 0,
+  LEFT_EYE_INNER: 1,
+  LEFT_EYE: 2,
+  LEFT_EYE_OUTER: 3,
+  RIGHT_EYE_INNER: 4,
+  RIGHT_EYE: 5,
+  RIGHT_EYE_OUTER: 6,
+  LEFT_EAR: 7,
+  RIGHT_EAR: 8,
+  MOUTH_LEFT: 9,
+  MOUTH_RIGHT: 10,
+  LEFT_SHOULDER: 11,
+  RIGHT_SHOULDER: 12,
+  LEFT_ELBOW: 13,
+  RIGHT_ELBOW: 14,
+  LEFT_WRIST: 15,
+  RIGHT_WRIST: 16,
+  LEFT_PINKY: 17,
+  RIGHT_PINKY: 18,
+  LEFT_INDEX: 19,
+  RIGHT_INDEX: 20,
+  LEFT_THUMB: 21,
+  RIGHT_THUMB: 22,
+  LEFT_HIP: 23,
+  RIGHT_HIP: 24,
+  LEFT_KNEE: 25,
+  RIGHT_KNEE: 26,
+  LEFT_ANKLE: 27,
+  RIGHT_ANKLE: 28,
+  LEFT_HEEL: 29,
+  RIGHT_HEEL: 30,
+  LEFT_FOOT_INDEX: 31,
+  RIGHT_FOOT_INDEX: 32,
+} as const

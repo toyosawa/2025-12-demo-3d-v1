@@ -6,7 +6,7 @@ import { VRMUtils, VRM } from "@pixiv/three-vrm"
 import { PoseLandmarker, FaceLandmarker } from "@mediapipe/tasks-vision"
 import { setupThree, setupVRMFromURL, setupMediaPipe, applyPoseToVRM, applyFaceToVRM } from "./lib"
 
-const VRM_MODEL_URL = "/vrm/shtra.vrm"
+const VRM_MODEL_URL = "https://cdn.glitch.com/29e07830-2317-4b15-a044-135e73c7f840%2FAshtra.vrm"
 
 export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
