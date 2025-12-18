@@ -25,9 +25,20 @@ export default function Home() {
 
   const apply_pose_to_vrm_function_ref = useRef(applyPoseToVRM)
   apply_pose_to_vrm_function_ref.current = applyPoseToVRM
-  
+
   const apply_face_to_vrm_function_ref = useRef(applyFaceToVRM)
   apply_face_to_vrm_function_ref.current = applyFaceToVRM
+
+  // カスタムフックでカメラ操作を管理
+  const {
+    handle_mouse_down,
+    handle_mouse_move,
+    handle_mouse_up,
+    handle_wheel,
+    camera_rotation_ref,
+    camera_distance_ref,
+    is_dragging_ref,
+  } = useDraggableCamera()
 
   // Three.jsのセットアップ
   const init_three_js = () => {
@@ -48,8 +59,22 @@ export default function Home() {
 
     window.addEventListener("resize", handle_resize)
 
+    // カメラ位置を更新する関数
+    const update_camera_position = () => {
+      if (!camera_ref.current) return
+      const h = camera_rotation_ref.current.horizontal
+      const v = camera_rotation_ref.current.vertical
+      const distance = camera_distance_ref.current
+
+      camera_ref.current.position.x = distance * Math.sin(h) * Math.cos(v)
+      camera_ref.current.position.y = 1.4 + distance * Math.sin(v)
+      camera_ref.current.position.z = distance * Math.cos(h) * Math.cos(v)
+      camera_ref.current.lookAt(0, 1.4, 0)
+    }
+
     const animate = () => {
       animation_id_ref.current = requestAnimationFrame(animate)
+      update_camera_position()
       if (vrm_ref.current) {
         vrm_ref.current.update(0.016)
       }
@@ -174,12 +199,18 @@ export default function Home() {
       <div style={{ position: "relative", width: "100vw", height: "100vh" }}>
         <canvas
           ref={canvas_ref}
+          onMouseDown={handle_mouse_down}
+          onMouseMove={handle_mouse_move}
+          onMouseUp={handle_mouse_up}
+          onMouseLeave={handle_mouse_up}
+          onWheel={handle_wheel}
           style={{
             position: "absolute",
             top: 0,
             left: 0,
             width: "100%",
             height: "100%",
+            cursor: is_dragging_ref.current ? "grabbing" : "grab",
           }}
         />
         <video
@@ -236,4 +267,55 @@ export default function Home() {
       </div>
     </div>
   )
+}
+
+const useDraggableCamera = () => {
+  // カメラ回転用の状態
+  const is_dragging_ref = useRef(false)
+  const previous_mouse_ref = useRef({ x: 0, y: 0 })
+  const camera_rotation_ref = useRef({ horizontal: 0, vertical: 0 })
+  const camera_distance_ref = useRef(3)
+
+  // マウスイベントハンドラー
+  const handle_mouse_down = (e: React.MouseEvent) => {
+    is_dragging_ref.current = true
+    previous_mouse_ref.current = { x: e.clientX, y: e.clientY }
+  }
+  const handle_mouse_move = (e: React.MouseEvent) => {
+    if (!is_dragging_ref.current) return
+
+    const delta_x = e.clientX - previous_mouse_ref.current.x
+    const delta_y = e.clientY - previous_mouse_ref.current.y
+    camera_rotation_ref.current.horizontal -= delta_x * 0.01
+    camera_rotation_ref.current.vertical += delta_y * 0.01
+
+    // 垂直回転を制限（真上と真下を避ける）
+    camera_rotation_ref.current.vertical = Math.max(
+      -Math.PI / 2 + 0.1,
+      Math.min(Math.PI / 2 - 0.1, camera_rotation_ref.current.vertical),
+    )
+
+    previous_mouse_ref.current = { x: e.clientX, y: e.clientY }
+  }
+
+  const handle_mouse_up = () => {
+    is_dragging_ref.current = false
+  }
+
+  // ホイールでズーム
+  const handle_wheel = (e: React.WheelEvent) => {
+    e.preventDefault()
+    camera_distance_ref.current += e.deltaY * 0.01
+    camera_distance_ref.current = Math.max(1, Math.min(10, camera_distance_ref.current))
+  }
+
+  return {
+    handle_mouse_down,
+    handle_mouse_move,
+    handle_mouse_up,
+    handle_wheel,
+    camera_rotation_ref,
+    camera_distance_ref,
+    is_dragging_ref,
+  }
 }
