@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3Dアバター制御 - ポーズ＆表情認識</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      font-family: sans-serif;
+    }
+
+    #container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    #canvas3d {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    #videoInput {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      width: 320px;
+      height: 240px;
+      border: 2px solid #fff;
+      border-radius: 8px;
+      transform: scaleX(-1);
+    }
+
+    #controls {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(0, 0, 0, 0.7);
+      color: white;
+      padding: 15px;
+      border-radius: 8px;
+      font-size: 12px;
+    }
+
+    button {
+      margin: 5px 0;
+      padding: 8px 12px;
+      cursor: pointer;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 4px;
+    }
+
+    button:hover {
+      background: #45a049;
+    }
+
+    #status {
+      margin-top: 10px;
+      font-size: 11px;
+      color: #ffeb3b;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="container">
+    <canvas id="canvas3d"></canvas>
+    <video id="videoInput" autoplay playsinline></video>
+    <div id="controls">
+      <h3>3Dアバター制御</h3>
+      <button id="startBtn">カメラ開始</button>
+      <button id="loadModelBtn">VRMモデル読込</button>
+      <div id="status">待機中...</div>
+    </div>
+  </div>
+
+  <!-- ライブラリの読み込み -->
+  <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+            "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@2.1.0/lib/three-vrm.module.js",
+            "@mediapipe/tasks-vision": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8/vision_bundle.mjs"
+        }
+    }
+    </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+    import {
+      PoseLandmarker,
+      FaceLandmarker,
+      FilesetResolver,
+      DrawingUtils
+    } from '@mediapipe/tasks-vision';
+
+    // ==============================================
+    // グローバル変数
+    // ==============================================
+    let camera, scene, renderer, vrm;
+    let poseLandmarker, faceLandmarker;
+    let video, animationId;
+    let isProcessing = false;
+
+    const status = document.getElementById('status');
+
+    // ==============================================
+    // Three.jsのセットアップ
+    // ==============================================
+    function initThreeJS() {
+      const canvas = document.getElementById('canvas3d');
+
+      // シーン
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x212121);
+
+      // カメラ
+      camera = new THREE.PerspectiveCamera(
+        30,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        100
+      );
+      camera.position.set(0, 1.4, 3);
+
+      // ライト
+      const light = new THREE.DirectionalLight(0xffffff, 1);
+      light.position.set(1, 1, 1);
+      scene.add(light);
+      scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+
+      // グリッド
+      const gridHelper = new THREE.GridHelper(10, 10);
+      scene.add(gridHelper);
+
+      // レンダラー
+      renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(window.devicePixelRatio);
+
+      // リサイズ対応
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+
+      // アニメーションループ
+      function animate() {
+        requestAnimationFrame(animate);
+        if (vrm) {
+          vrm.update(0.016); // 約60fps
+        }
+        renderer.render(scene, camera);
+      }
+      animate();
+
+      status.textContent = 'Three.js初期化完了';
+    }
+
+    // ==============================================
+    // VRMモデルのロード
+    // ==============================================
+    async function loadVRMModel() {
+      const loader = new GLTFLoader();
+      loader.register((parser) => new VRMLoaderPlugin(parser));
+
+      try {
+        // VRMモデルのURL（サンプル: VRoid Hubの公開モデル）
+        const modelUrl = '/vrm/shtra.vrm';
+
+        status.textContent = 'VRMモデル読込中...';
+
+        const gltf = await loader.loadAsync(modelUrl);
+        vrm = gltf.userData.vrm;
+
+        // モデルをシーンに追加
+        scene.add(vrm.scene);
+
+        // T-Pose解除
+        VRMUtils.rotateVRM0(vrm);
+
+        status.textContent = 'VRMモデル読込完了';
+        console.log('VRM Model loaded:', vrm);
+      } catch (error) {
+        status.textContent = 'VRMモデル読込エラー: ' + error.message;
+        console.error(error);
+      }
+    }
+
+    // ファイル選択でVRMモデルを読み込む
+    document.getElementById('loadModelBtn').addEventListener('click', () => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.vrm';
+      input.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const loader = new GLTFLoader();
+        loader.register((parser) => new VRMLoaderPlugin(parser));
+
+        const url = URL.createObjectURL(file);
+        const gltf = await loader.loadAsync(url);
+
+        // 既存モデルを削除
+        if (vrm) scene.remove(vrm.scene);
+
+        vrm = gltf.userData.vrm;
+        scene.add(vrm.scene);
+        VRMUtils.rotateVRM0(vrm);
+
+        status.textContent = 'VRMモデル読込完了';
+      };
+      input.click();
+    });
+
+    // ==============================================
+    // MediaPipeのセットアップ
+    // ==============================================
+    async function initMediaPipe() {
+      status.textContent = 'MediaPipe初期化中...';
+
+      const vision = await FilesetResolver.forVisionTasks(
+        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8/wasm"
+      );
+
+      // ポーズ検出
+      poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath: `https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task`,
+          delegate: "GPU"
+        },
+        runningMode: "VIDEO",
+        numPoses: 1
+      });
+
+      // 顔検出
+      faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`,
+          delegate: "GPU"
+        },
+        outputFaceBlendshapes: true,
+        outputFacialTransformationMatrixes: true,
+        runningMode: "VIDEO",
+        numFaces: 1
+      });
+
+      status.textContent = 'MediaPipe初期化完了';
+    }
+
+    // ==============================================
+    // カメラの起動
+    // ==============================================
+    async function startCamera() {
+      video = document.getElementById('videoInput');
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 640, height: 480 }
+        });
+        video.srcObject = stream;
+        video.addEventListener('loadeddata', () => {
+          status.textContent = 'カメラ起動完了 - 処理開始';
+          processFrame();
+        });
+      } catch (error) {
+        status.textContent = 'カメラエラー: ' + error.message;
+        console.error(error);
+      }
+    }
+
+    // ==============================================
+    // フレーム処理
+    // ==============================================
+    async function processFrame() {
+      if (!video || video.readyState !== 4) {
+        requestAnimationFrame(processFrame);
+        return;
+      }
+
+      if (isProcessing) {
+        requestAnimationFrame(processFrame);
+        return;
+      }
+
+      isProcessing = true;
+      const startTimeMs = performance.now();
+
+      try {
+        // ポーズ検出
+        const poseResults = poseLandmarker.detectForVideo(video, startTimeMs);
+
+        // 顔検出
+        const faceResults = faceLandmarker.detectForVideo(video, startTimeMs);
+
+        // VRMモデルに反映
+        if (vrm) {
+          applyPoseToVRM(poseResults);
+          applyFaceToVRM(faceResults);
+        }
+      } catch (error) {
+        console.error('Detection error:', error);
+      }
+
+      isProcessing = false;
+      requestAnimationFrame(processFrame);
+    }
+
+    // ==============================================
+    // ポーズをVRMに適用
+    // ==============================================
+    function applyPoseToVRM(results) {
+      if (!results.landmarks || results.landmarks.length === 0) return;
+      if (!vrm) return;
+
+      const landmarks = results.landmarks[0];
+      const humanoid = vrm.humanoid;
+
+      // 肩の回転（上下+前後）
+      const leftShoulder = landmarks[11];
+      const leftElbow = landmarks[13];
+      const leftWrist = landmarks[15];
+      const rightShoulder = landmarks[12];
+      const rightElbow = landmarks[14];
+      const rightWrist = landmarks[16];  // 正しいインデックスに修正
+
+      // 左腕（上下と前後の動き）
+      if (humanoid.getNormalizedBoneNode('leftUpperArm')) {
+        const armAngles = calculateArmAngles(leftShoulder, leftElbow, leftWrist);
+        humanoid.getNormalizedBoneNode('leftUpperArm').rotation.z = armAngles.z;
+        humanoid.getNormalizedBoneNode('leftUpperArm').rotation.x = -armAngles.x;  // 前後の動き（符号反転）
+      }
+
+      // 左肘の曲げ
+      if (humanoid.getNormalizedBoneNode('leftLowerArm')) {
+        const elbowAngle = calculateElbowAngle(leftShoulder, leftElbow, leftWrist);
+        humanoid.getNormalizedBoneNode('leftLowerArm').rotation.z = elbowAngle;
+      }
+
+      // 右腕（上下と前後の動き）
+      if (humanoid.getNormalizedBoneNode('rightUpperArm')) {
+        const armAngles = calculateArmAngles(rightShoulder, rightElbow, rightWrist);
+        humanoid.getNormalizedBoneNode('rightUpperArm').rotation.z = -armAngles.z;
+        humanoid.getNormalizedBoneNode('rightUpperArm').rotation.x = armAngles.x;  // 前後の動き（左腕と鏡像）
+      }
+
+      // 右肘の曲げ
+      if (humanoid.getNormalizedBoneNode('rightLowerArm')) {
+        const elbowAngle = calculateElbowAngle(rightShoulder, rightElbow, rightWrist);
+        humanoid.getNormalizedBoneNode('rightLowerArm').rotation.z = -elbowAngle;
+      }
+
+      // 頭の回転（簡易版）
+      const nose = landmarks[0];
+      const leftEar = landmarks[7];
+      const rightEar = landmarks[8];
+
+      if (humanoid.getNormalizedBoneNode('head')) {
+        const headRotation = calculateHeadRotation(nose, leftEar, rightEar);
+        humanoid.getNormalizedBoneNode('head').rotation.y = headRotation.y;
+        humanoid.getNormalizedBoneNode('head').rotation.x = headRotation.x;
+      }
+    }
+
+    // 腕の角度計算（上下と前後の動き）
+    function calculateArmAngles(shoulder, elbow, wrist) {
+      // Z軸回転（上下の動き）
+      const dy = elbow.y - shoulder.y;
+      const dx = elbow.x - shoulder.x;
+      const zRotation = Math.atan2(dy, dx);
+
+      // X軸回転（前後の動き）- z座標の深さを使用
+      const dz = elbow.z - shoulder.z;
+      const horizontalDist = Math.sqrt(dx * dx + dy * dy);
+      const xRotation = Math.atan2(dz, horizontalDist);
+
+      return {
+        z: zRotation,
+        x: xRotation
+      };
+    }
+
+    // 肘の曲げ角度を計算
+    function calculateElbowAngle(shoulder, elbow, wrist) {
+      // 肩→肘のベクトル
+      const upperArm = {
+        x: elbow.x - shoulder.x,
+        y: elbow.y - shoulder.y,
+        z: elbow.z - shoulder.z
+      };
+
+      // 肘→手首のベクトル
+      const lowerArm = {
+        x: wrist.x - elbow.x,
+        y: wrist.y - elbow.y,
+        z: wrist.z - elbow.z
+      };
+
+      // 内積とベクトルの長さを計算
+      const dot = upperArm.x * lowerArm.x + upperArm.y * lowerArm.y + upperArm.z * lowerArm.z;
+      const upperLength = Math.sqrt(upperArm.x ** 2 + upperArm.y ** 2 + upperArm.z ** 2);
+      const lowerLength = Math.sqrt(lowerArm.x ** 2 + lowerArm.y ** 2 + lowerArm.z ** 2);
+
+      // コサイン値から角度を計算（0〜π）
+      const cosAngle = dot / (upperLength * lowerLength);
+      const angle = Math.acos(Math.max(-1, Math.min(1, cosAngle)));
+
+      // 曲げ角度はπから引いた値（伸ばした状態が0、曲げるとマイナス）
+      return -(Math.PI - angle);
+    }
+
+    // 頭の回転計算（簡易版）
+    function calculateHeadRotation(nose, leftEar, rightEar) {
+      const earCenter = {
+        x: (leftEar.x + rightEar.x) / 2,
+        y: (leftEar.y + rightEar.y) / 2
+      };
+
+      // 左右の傾き（符号を反転）
+      const yaw = -(nose.x - earCenter.x) * 2;
+
+      // 上下の傾き（符号を反転）
+      const pitch = -(nose.y - earCenter.y) * 2;
+
+      return {
+        y: yaw,
+        x: pitch
+      };
+    }
+
+    // ==============================================
+    // 表情をVRMに適用
+    // ==============================================
+    function applyFaceToVRM(results) {
+      if (!results.faceBlendshapes || results.faceBlendshapes.length === 0) return;
+      if (!vrm || !vrm.expressionManager) return;
+
+      const blendshapes = results.faceBlendshapes[0].categories;
+
+      // ブレンドシェイプのマッピング
+      const blendshapeMap = {
+        'eyeBlinkLeft': 'blinkLeft',
+        'eyeBlinkRight': 'blinkRight',
+        'jawOpen': 'aa',
+        'mouthSmileLeft': 'joy',
+        'mouthSmileRight': 'joy',
+        'browDownLeft': 'angry',
+        'browDownRight': 'angry',
+        'mouthFrownLeft': 'sorrow',
+        'mouthFrownRight': 'sorrow'
+      };
+
+      // 表情の適用
+      blendshapes.forEach(shape => {
+        const vrmExpression = blendshapeMap[shape.categoryName];
+        if (vrmExpression && shape.score > 0.1) {
+          try {
+            vrm.expressionManager.setValue(vrmExpression, shape.score);
+          } catch (e) {
+            // 対応していない表情は無視
+          }
+        }
+      });
+
+      // まばたきの統合処理（閾値を上げて誤検知を防ぐ）
+      const blinkLeft = blendshapes.find(s => s.categoryName === 'eyeBlinkLeft')?.score || 0;
+      const blinkRight = blendshapes.find(s => s.categoryName === 'eyeBlinkRight')?.score || 0;
+      const blink = (blinkLeft + blinkRight) / 2;
+
+      if (blink > 0.9) {
+        try {
+          vrm.expressionManager.setValue('blink', 1.0);
+        } catch (e) { }
+      }
+
+      // 笑顔の統合処理
+      const smileLeft = blendshapes.find(s => s.categoryName === 'mouthSmileLeft')?.score || 0;
+      const smileRight = blendshapes.find(s => s.categoryName === 'mouthSmileRight')?.score || 0;
+      const smile = Math.max(smileLeft, smileRight);
+
+      if (smile > 0.3) {
+        try {
+          vrm.expressionManager.setValue('happy', smile);
+        } catch (e) { }
+      }
+    }
+
+    // ==============================================
+    // 初期化とイベント設定
+    // ==============================================
+    async function init() {
+      initThreeJS();
+      await initMediaPipe();
+      await loadVRMModel(); // デフォルトモデルをロード
+    }
+
+    document.getElementById('startBtn').addEventListener('click', () => {
+      startCamera();
+    });
+
+    // アプリケーション起動
+    init();
+  </script>
+</body>
+
+</html>
