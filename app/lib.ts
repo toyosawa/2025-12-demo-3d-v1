@@ -211,20 +211,20 @@ export const applyFaceToVRM = (results: {
       }
 
       // 瞳の回転
-      if (riggedFace.pupil) {
-        const leftEye = vrm.humanoid.getNormalizedBoneNode("leftEye")
-        const rightEye = vrm.humanoid.getNormalizedBoneNode("rightEye")
+      // if (riggedFace.pupil) {
+      //   const leftEye = vrm.humanoid.getNormalizedBoneNode("leftEye")
+      //   const rightEye = vrm.humanoid.getNormalizedBoneNode("rightEye")
         
-        // 左右の瞳が追従
-        if (leftEye) {
-          leftEye.rotation.y = riggedFace.pupil.x
-          leftEye.rotation.z = riggedFace.pupil.y
-        }
-        if (rightEye) {
-          rightEye.rotation.y = riggedFace.pupil.x
-          rightEye.rotation.z = riggedFace.pupil.y
-        }
-      }
+      //   // 左右の瞳が追従
+      //   if (leftEye) {
+      //     leftEye.rotation.y = riggedFace.pupil.x
+      //     leftEye.rotation.z = riggedFace.pupil.y
+      //   }
+      //   if (rightEye) {
+      //     rightEye.rotation.y = riggedFace.pupil.x
+      //     rightEye.rotation.z = riggedFace.pupil.y
+      //   }
+      // }
     }
   }
 
